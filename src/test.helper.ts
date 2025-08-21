@@ -149,10 +149,15 @@ export async function makeScreenshotResolutions(
   locator: Locator | Page,
   testInfo: TestInfo,
   waitLoadState = true,
-  opts?: PageAssertionsToHaveScreenshotOptions & { useTitle?: boolean }
+  opts?: PageAssertionsToHaveScreenshotOptions & {
+    /** использовать название теста в наиеновании скриншота */
+    useTitle?: boolean;
+    /** задержка между формирование скриншотов */
+    delay?: number;
+  }
 ) {
   const page = (locator as Locator).page?.() ?? (locator as Page);
-
+  const { delay = 500 } = opts ?? {};
   const { title } = testInfo;
   const { useTitle } = opts ?? {};
 
@@ -161,19 +166,19 @@ export async function makeScreenshotResolutions(
 
   await page.setViewportSize({ width: 1024, height: 768 });
 
-  await wait(page, 500, waitLoadState);
+  await wait(page, delay, waitLoadState);
   await expect.soft(locator).toHaveScreenshot(`${pfx}1024х768.png`);
 
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await wait(page, 500, waitLoadState);
+  await wait(page, delay, waitLoadState);
   await expect.soft(locator).toHaveScreenshot(`${pfx}1920х1080.png`);
 
   await page.setViewportSize({ width: 2048, height: 1080 });
-  await wait(page, 500, waitLoadState);
+  await wait(page, delay, waitLoadState);
   await expect.soft(locator).toHaveScreenshot(`${pfx}2048х1080.png`);
 
   await page.setViewportSize({ width: 3840, height: 2160 });
-  await wait(page, 500, waitLoadState);
+  await wait(page, delay, waitLoadState);
   await expect.soft(locator).toHaveScreenshot(`${pfx}3840х2016.png`);
 
   // await page.evaluate('document.body.style.zoom=2');
@@ -278,7 +283,7 @@ export function networkRecorderAuthHook({
   ) => {
     if (testInfo.project.name.includes("network-recorder")) {
       // APP_HOST = packageJson.proxy;
-
+      networkRecorderFlag = true;
       await request.post(getAppUrl(host), {
         headers: { "Content-Type": "application/json" },
         data: JSON.stringify({ userName: login, password }),
@@ -287,6 +292,34 @@ export function networkRecorderAuthHook({
       page.context().addCookies(state.cookies);
     }
   };
+}
+
+let networkRecorderFlag = false;
+
+/**
+ * Проверяет, активен ли режим network-recorder.
+ * Используется для определения, выполняются ли тесты в специальном режиме network-recorder.
+ *
+ * @returns {boolean} true, если активен режим network-recorder, иначе false.
+ */
+export function isNetworkRecorder() {
+  return networkRecorderFlag;
+}
+
+/**
+ * Ожидает завершения сетевых операций для проекта network-recorder или выполняет стандартное ожидание.
+ * Использует специальную задержку, если активен режим network-recorder.
+ *
+ * @param {Page} page - Объект страницы Playwright.
+ * @param {number} [count=500] - Время ожидания в миллисекундах (по умолчанию 500).
+ * @param {boolean} waitLoadState - Флаг ожидания состояния загрузки страницы.
+ */
+export async function networkRecorderWait(
+  page: Page,
+  count = 500,
+  waitLoadState: boolean
+) {
+  await wait(page, isNetworkRecorder() ? count : 500, waitLoadState);
 }
 
 export const expect = baseExpect.extend({
