@@ -223,10 +223,14 @@ export function themeSwitcher({
   };
 }
 
-const APP_HOST = `${DEMO_HOST}:${DEMO_PORT}`;
+let APP_HOST = `${DEMO_HOST}:${DEMO_PORT}`;
 
 export function getAppUrl(url = "") {
   return `${APP_HOST}${url}`;
+}
+
+function setAppHost(host: string) {
+  APP_HOST = host;
 }
 
 /**
@@ -269,14 +273,17 @@ export function networkRecorderAuthHook({
   login,
   password,
   host,
+  authUri,
 }: {
   login?: string;
   password?: string;
   host?: string;
+  authUri?: string;
 }) {
   login = login ?? "adm";
   password = password ?? "luxmsbi";
   host = host ?? "/ekp-user-service/api/Auth/login";
+  authUri = authUri ?? "/ekp-user-service/api/Auth/login";
   return async (
     { page, request }: { page: Page; request: APIRequestContext },
     testInfo: TestInfo
@@ -284,7 +291,10 @@ export function networkRecorderAuthHook({
     if (testInfo.project.name.includes("network-recorder")) {
       // APP_HOST = packageJson.proxy;
       networkRecorderFlag = true;
-      await request.post(getAppUrl(host), {
+      if (host) {
+        setAppHost(host);
+      }
+      await request.post(getAppUrl(authUri), {
         headers: { "Content-Type": "application/json" },
         data: JSON.stringify({ userName: login, password }),
       });

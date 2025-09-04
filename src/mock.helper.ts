@@ -9,7 +9,7 @@ import { readFile } from "fs/promises";
 
 // Импортируем функцию для чтения файлов асинхронно
 import { wait } from "./playwright.utils";
-import { getAppUrl } from "./test.helper";
+import { getAppUrl, isNetworkRecorder } from "./test.helper";
 import { Variables, replaceVariablesInJson } from "./util";
 
 function getFileFromZip(
@@ -225,7 +225,7 @@ export class MockServerHelper {
     await page.routeFromHAR(MockServerHelper.getHarPath(testInfo, msH.opts), {
       url: getAppUrl("/**/api/**"), // Capture all requests, or specify a glob pattern for specific URLs
       // updateMode: 'minimal',
-      update: project.name.includes("network-recorder"),
+      update: isNetworkRecorder(),
     });
 
     return msH;
@@ -377,6 +377,11 @@ export class MockServerHelper {
    */
   public async use(...useApis: UseApi[]) {
     const { directory, page } = this;
+
+    if (isNetworkRecorder()) {
+      console.log('Skip using mocks in record network mode', useApis);
+      return;
+    }
 
     const resolveMockFile = async (
       route: Route,
@@ -551,6 +556,7 @@ export class MockServerHelper {
    */
   public async setFixedTime(time = "2024-02-02T10:00:00") {
     await this.page.clock.setFixedTime(new Date(time)); // Устанавливаем фиксированное время
+    this.page.clock.install({ time });
   }
 
   /** Метод используется для возможности ваимодействия со страницей в режиме отладки, чтобы работали моки АПИ */
