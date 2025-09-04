@@ -35,3 +35,6 @@ _Примеры использования будут добавлены поз�
 
 ## 1.54.2-alpha.24
 - Добавлены функции `networkRecorderWait` и `isNetworkRecorder` в файл `src/test.helper.ts` для работы с режимом network-recorder и проверки его состояния.
+
+## 1.54.2-alpha.27
+- В классе MockServerHelper добавлена проверка на режим network-recorder с использованием функции isNetworkRecorder. Теперь MockServerHelper.use не будет мокировать запросы в режмие network recorder
