@@ -162,7 +162,7 @@ export async function makeScreenshotResolutions(
   const { useTitle } = opts ?? {};
 
   const defSize = page.viewportSize();
-  const pfx = `${useTitle ? `${title}-` : ""}`;
+  const pfx = useTitle ? `${title}-` : "";
 
   await page.setViewportSize({ width: 1024, height: 768 });
 
@@ -180,11 +180,6 @@ export async function makeScreenshotResolutions(
   await page.setViewportSize({ width: 3840, height: 2160 });
   await wait(page, delay, waitLoadState);
   await expect.soft(locator).toHaveScreenshot(`${pfx}3840х2016.png`);
-
-  // await page.evaluate('document.body.style.zoom=2');
-  // await wait(page, 500, true);
-  // await expect.soft(page).toHaveScreenshot(`${title}-3840х2016х200.png`);
-  // await page.evaluate('document.body.style.zoom=1');
 
   if (defSize) await page.setViewportSize(defSize);
 }
@@ -234,6 +229,8 @@ function setAppHost(host: string) {
 }
 
 /**
+ * @deprecated Необходимо использовать networkRecorderAuthHook
+ *
  * Хук для beforeEach. Используется для тестов с проектом network-recorder.
  * Выполняет авторизацию пользователя через API, сохраняет состояние сессии и добавляет cookies в контекст страницы.
  *
@@ -242,6 +239,7 @@ function setAppHost(host: string) {
  * 2. Выполняет POST-запрос на эндпоинт авторизации с логином и паролем.
  * 3. Получает состояние хранилища (storageState) после авторизации.
  * 4. Добавляет полученные cookies в контекст страницы для эмуляции авторизованного пользователя.
+ *
  *
  * @param {{ page: Page; request: APIRequestContext }} param0 - Объект с page и request
  * @param {TestInfo} testInfo - Информация о тесте
@@ -274,32 +272,32 @@ export function networkRecorderAuthHook({
   password,
   host,
   authUri,
+  skipAuth,
 }: {
   login?: string;
   password?: string;
   host?: string;
   authUri?: string;
+  skipAuth?: boolean;
 }) {
-  login = login ?? "adm";
-  password = password ?? "luxmsbi";
-  host = host ?? "/ekp-user-service/api/Auth/login";
   authUri = authUri ?? "/ekp-user-service/api/Auth/login";
   return async (
     { page, request }: { page: Page; request: APIRequestContext },
     testInfo: TestInfo
   ) => {
     if (testInfo.project.name.includes("network-recorder")) {
-      // APP_HOST = packageJson.proxy;
       networkRecorderFlag = true;
       if (host) {
         setAppHost(host);
       }
-      await request.post(getAppUrl(authUri), {
-        headers: { "Content-Type": "application/json" },
-        data: JSON.stringify({ userName: login, password }),
-      });
-      const state = await request.storageState();
-      page.context().addCookies(state.cookies);
+      if (!skipAuth) {
+        await request.post(getAppUrl(authUri), {
+          headers: { "Content-Type": "application/json" },
+          data: JSON.stringify({ userName: login, password }),
+        });
+        const state = await request.storageState();
+        page.context().addCookies(state.cookies);
+      }
     }
   };
 }

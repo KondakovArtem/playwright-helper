@@ -12,6 +12,10 @@ import { wait } from "./playwright.utils";
 import { getAppUrl, isNetworkRecorder } from "./test.helper";
 import { Variables, replaceVariablesInJson } from "./util";
 
+const defaulMockUrl = "/**/api/**";
+
+type RouteHarOptions = NonNullable<Parameters<Page["routeFromHAR"]>[1]>;
+
 function getFileFromZip(
   zipFilePath: string,
   fileName: string
@@ -111,6 +115,8 @@ interface MockServerHelperOptions {
   useAuth?: boolean;
   zipHAR?: boolean;
   harName?: string;
+  /** URL-паттерн для мокирования API запросов default - getAppUrl("/\**\/api/**") */
+  mockUrl?: RouteHarOptions["url"];
 }
 
 export class MockServerHelper {
@@ -127,18 +133,11 @@ export class MockServerHelper {
     opts: MockServerHelperOptions,
     fileName: string
   ) {
-    const { title, file } = testInfo;
     const harPath = MockServerHelper.getHarPath(testInfo, opts);
     return join(dirname(harPath), fileName);
-    // return join(
-    //   `${file}-snapshots/${title.replaceAll(" ", "-")}`,
-    //   "har",
-    //   opts.harName ?? "har",
-    //   fileName
-    // );
   }
 
-  private har?: Promise<
+  private readonly har?: Promise<
     | {
         log: {
           entries: {
@@ -188,31 +187,76 @@ export class MockServerHelper {
       return JSON.parse(content);
     }
     return undefined;
-    // const path = MockServerHelper.getHarPath(this.testInfo, this.opts);
-    // if (!this.har) {
-    //   // eslint-disable-next-line no-async-promise-executor
-    //   this.har = (async () => {
-    //     if (existsSync(path)) {
-    //       let content: string | null = null;
-    //       if (extname(path) === ".zip") {
-    //         content = await getFileFromZip(path, "har.har");
-    //       } else {
-    //         content = readFileSync(
-    //           MockServerHelper.getHarPath(this.testInfo, this.opts),
-    //           "utf-8"
-    //         );
-    //       }
-    //       if (!content) {
-    //         return undefined;
-    //       }
+  }
 
-    //       return JSON.parse(content);
-    //     }
+  /**
+   * Извлекает body ответа из HAR по спецификатору вида:
+   *   har/[GET:/path/to/api]
+   *   har/[GET:/path/to/api (#2)]
+   * Возвращает строковое тело и флаг, является ли оно JSON.
+   */
+  private async getBodyFromHarSpecifier(
+    specifier: string
+  ): Promise<{ body: string; harFile: string }> {
+    const match = /^har\/\[(.+)\]$/.exec(specifier.trim());
+    if (!match) {
+      throw new Error(`Неверный формат спецификатора HAR: ${specifier}`);
+    }
 
-    //     return undefined;
-    //   })();
-    // }
-    // return this.har;
+    const wantedKey = match[1];
+
+    const har = await this.getHarContent();
+    if (!har) {
+      throw new Error("HAR содержимое не найдено");
+    }
+
+    const entries: Array<{
+      request: { url: string; method: string };
+      response: {
+        status: number;
+        content?: {
+          mimeType?: string;
+          text?: string;
+          encoding?: string;
+          _file?: string;
+        };
+      };
+    }> = har?.log?.entries ?? [];
+
+    // Генерируем ключи по той же логике, что и в expectApiCalls
+    let found: (typeof entries)[number] | undefined;
+    let generatedKey = "";
+    const keyCounter: Record<string, number> = {};
+
+    for (const entry of entries) {
+      const baseKey = `${entry.request.method}:${entry.request.url}`.replace(
+        getAppUrl(),
+        ""
+      );
+      const count = (keyCounter[baseKey] ?? 0) + 1;
+      keyCounter[baseKey] = count;
+      generatedKey = count === 1 ? baseKey : `${baseKey} (#${count})`;
+
+      if (generatedKey === wantedKey) {
+        found = entry;
+        break;
+      }
+    }
+
+    if (!found) {
+      throw new Error(`Запись в HAR не найдена по ключу: ${wantedKey}`);
+    }
+
+    const content = found.response?.content ?? {};
+    if (!content._file) {
+      throw new Error(`Не найден контент для HAR запроса ${wantedKey}`);
+    }
+
+    const body = await this.getHarFile(content._file);
+    if (body === undefined) {
+      throw new Error(`Файл тела из HAR не найден: ${content._file}`);
+    }
+    return { body, harFile: content._file };
   }
 
   static async init(
@@ -220,32 +264,47 @@ export class MockServerHelper {
     testInfo: TestInfo,
     opts: MockServerHelperOptions | boolean = true
   ) {
-    const { project } = testInfo;
+    let mockUrl: string | RegExp = getAppUrl(defaulMockUrl);
+    mockUrl = (typeof opts === "object" ? opts.mockUrl : mockUrl) ?? mockUrl;
+
     const msH = new MockServerHelper(page, testInfo, opts);
-    await page.routeFromHAR(MockServerHelper.getHarPath(testInfo, msH.opts), {
-      url: getAppUrl("/**/api/**"), // Capture all requests, or specify a glob pattern for specific URLs
-      // updateMode: 'minimal',
+    await msH.routeFromHAR(undefined, {
+      url: mockUrl, // Capture all requests, or specify a glob pattern for specific URLs
       update: isNetworkRecorder(),
     });
 
     return msH;
   }
 
+  public async routeFromHAR(harName?: string, opts?: RouteHarOptions) {
+    const { testInfo } = this;
+    await this.page.routeFromHAR(
+      MockServerHelper.getHarPath(testInfo, {
+        ...this.opts,
+        harName: harName ?? this.opts?.harName,
+      }),
+      {
+        ...opts,
+        update: isNetworkRecorder(),
+      }
+    );
+  }
+
   // Путь к директории теста
-  private directory = "";
+  private readonly directory: string = "";
 
   // Массив для хранения неудачных запросов
-  private failedRequests: string[] = [];
+  private readonly failedRequests: string[] = [];
 
   // Массив для хранения сообщений консоли
-  private consoleLog: string[] = [];
+  private readonly consoleLog: string[] = [];
 
   public readonly opts: MockServerHelperOptions;
 
   // Конструктор класса, принимает объект страницы и информацию о тесте
   constructor(
-    private page: Page,
-    private testInfo: TestInfo,
+    private readonly page: Page,
+    private readonly testInfo: TestInfo,
     opts: MockServerHelperOptions | boolean = true
   ) {
     this.directory = dirname(testInfo.file); // Определяем директорию на основе файла теста
@@ -283,9 +342,6 @@ export class MockServerHelper {
     if (strictApiCall ?? true) {
       this.strictApiCall();
     }
-    // if (useAuth) {
-    //   this.useAuth();
-    // }
   }
 
   /**
@@ -299,14 +355,18 @@ export class MockServerHelper {
       return;
     }
 
-    await this.page.route(getAppUrl("/**/api/**"), async (route) => {
+    let mockUrl: string | RegExp = getAppUrl(defaulMockUrl);
+    mockUrl =
+      (typeof this.opts === "object" ? this.opts.mockUrl : mockUrl) ?? mockUrl;
+
+    await this.page.route(mockUrl, async (route) => {
       return route.abort("accessdenied"); // Блокировка запроса с сообщением об ошибке доступа
     });
   }
 
   private _apiCalls: Record<string, string> = {};
 
-  private async spyApiCall() {
+  private spyApiCall() {
     this.page.on("request", async (request) => {
       const uri = this.isApiUrl(request.url(), getAppUrl());
       if (uri) {
@@ -338,32 +398,19 @@ export class MockServerHelper {
    * Метод для обработки аутентификации пользователя.
    * Возвращает замоканный ответ для проверки аутентификации.
    */
-  public async useAuth(mock: UseApi[1] = "utils/mocks/auth.mock.json") {
+  public async useAuth(
+    mock: UseApi[1] = "utils/mocks/auth.mock.json",
+    force = true
+  ) {
     console.log("using auth");
 
-    await this.use(
+    await this[force ? "forceUse" : "use"](
       [`GET:/ekp-user-service/api/auth/check`, mock],
       [
         `GET:/ekp-management/api/Settings?Category=ekp_management_service_auth`,
         "utils/mocks/auth.settings.mock.json",
       ]
     );
-
-    // await this.page.route(
-    //   `${DEMO_HOST}:${DEMO_PORT}/ekp-user-service/api/Auth/check`,
-    //   async (route) => {
-    //     // Если метод запроса не GET, просто передаем его дальше
-    //     if (route.request().method() !== 'GET') {
-    //       return route.fallback();
-    //     }
-    //     // Читаем замоканные данные из JSON файла
-    //     const json = JSON.parse(
-    //       await readFile(resolve(__dirname, mock), 'utf-8')
-    //     );
-
-    //     return route.fulfill({ status: 200, json }); // Возвращаем успешный ответ с замоканными данными
-    //   }
-    // );
   }
 
   public cleanUse() {
@@ -375,26 +422,32 @@ export class MockServerHelper {
    * Принимает массив URL и соответствующих им ответов.
    * @param useApis - массив пар [url, response]
    */
-  public async use(...useApis: UseApi[]) {
+  public async forceUse(...useApis: UseApi[]) {
     const { directory, page } = this;
-
-    if (isNetworkRecorder()) {
-      console.log('Skip using mocks in record network mode', useApis);
-      return;
-    }
-
     const resolveMockFile = async (
       route: Route,
       path: string,
       { vars, delay = 0 }: ResponseMeta = {}
     ) => {
       let body: string;
-      const ext = extname(path);
+      let ext: string = "";
 
-      if (path.indexOf("har") === 0) {
-        body = await this.getHarFile(path.split("har/").join(""));
+      if (path.startsWith("har")) {
+        // Поддержка двух форматов:
+        // 1) har/<filename> — читаем файл из каталога HAR
+        // 2) har/[<METHOD:URL (#N)>] — ищем запись в har и берем связанное тело
+        if (/^har\/\[.+\]$/.test(path)) {
+          const { body: harBody, harFile } = await this.getBodyFromHarSpecifier(
+            path
+          );
+          body = harBody;
+          ext = extname(harFile);
+        } else {
+          ext = extname(path);
+          body = await this.getHarFile(path.split("har/").join(""));
+        }
       } else {
-        if (path[0] !== ".") {
+        if (!path.startsWith(".")) {
           path = resolve(__dirname, "../", path);
         } else {
           path = resolve(directory, path);
@@ -461,10 +514,23 @@ export class MockServerHelper {
   }
 
   /**
+   * Метод для обработки нескольких API вызовов.
+   * Принимает массив URL и соответствующих им ответов.
+   * @param useApis - массив пар [url, response]
+   */
+  public async use(...useApis: UseApi[]) {
+    if (isNetworkRecorder()) {
+      console.log("Skip using mocks in record network mode", useApis);
+      return;
+    }
+    return this.forceUse(...useApis);
+  }
+
+  /**
    * Метод для мониторинга ошибок сети.
    * Записывает неудавшиеся запросы в массив.
    */
-  public async monitorNetworkError() {
+  public monitorNetworkError() {
     this.page.on("requestfailed", (request) => {
       console.error(
         "Запрос не удался:",
@@ -494,7 +560,7 @@ export class MockServerHelper {
    * Записывает сообщения определенных типов в массив.
    * @param types - массив типов сообщений для мониторинга
    */
-  public async monitorConsole(types: ConsoleLogType[] = ["error"]) {
+  public monitorConsole(types: ConsoleLogType[] = ["error"]) {
     this.page.on("console", (msg) => {
       if (types.includes(msg.type() as ConsoleLogType)) {
         this.consoleLog.push(msg.text()); // Добавляем текст сообщения в массив

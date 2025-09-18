@@ -12,7 +12,8 @@ import fs from "fs";
  */
 export async function compareDownloadedXlsx(
   download: Download,
-  fileName: string
+  fileName: string,
+  simpleEqual = false
 ) {
   const resultXls = await new Workbook().xlsx.read(
     await download.createReadStream()
@@ -23,13 +24,20 @@ export async function compareDownloadedXlsx(
   }
 
   const compareXls = await new Workbook().xlsx.readFile(fileName);
-  const compareModel = JSON.parse(JSON.stringify(compareXls.model));
-  const resultModel = JSON.parse(JSON.stringify(resultXls.model));
 
-  delete compareModel.created;
-  delete compareModel.modified;
-  delete resultModel.created;
-  delete resultModel.modified;
+  delete (compareXls as any).created;
+  delete (compareXls as any).modified;
+  delete (resultXls as any).created;
+  delete (resultXls as any).modified;
 
-  expect(resultModel).toEqual(compareModel);
+  const compareModelString = JSON.stringify(compareXls.model);
+  const resultModelString = JSON.stringify(resultXls.model);
+
+  if (simpleEqual) {
+    expect(compareModelString === resultModelString).toEqual(true);
+  } else {
+    const compareModel = JSON.parse(compareModelString);
+    const resultModel = JSON.parse(resultModelString);
+    expect(resultModel).toEqual(compareModel);
+  }
 }
