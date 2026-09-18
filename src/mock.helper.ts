@@ -1,11 +1,12 @@
 import { Page, Route, TestInfo, expect } from "@playwright/test";
-import { existsSync, readFileSync } from "fs";
+import { minimatch } from "minimatch";
+import { existsSync, readFileSync } from "node:fs";
 // Импортируем необходимые классы и функции из Playwright
-import { dirname, extname, resolve, join } from "path";
+import { dirname, extname, resolve, join } from "node:path";
 import * as yauzl from "yauzl";
 
 // Импортируем функции для работы с путями
-import { readFile } from "fs/promises";
+import { readFile } from "node:fs/promises";
 
 // Импортируем функцию для чтения файлов асинхронно
 import { wait } from "./playwright.utils";
@@ -318,12 +319,12 @@ export class MockServerHelper {
       };
     }
     opts = {
+      ...opts,
       fixedTime: opts.fixedTime ?? true,
       monitorNetworkError: opts.monitorNetworkError ?? true,
       strictApiCall: opts.strictApiCall ?? true,
       useAuth: opts.useAuth ?? false,
       zipHAR: opts.zipHAR ?? false,
-      harName: opts.harName,
     };
 
     this.opts = opts;
@@ -368,7 +369,7 @@ export class MockServerHelper {
 
   private spyApiCall() {
     this.page.on("request", async (request) => {
-      const uri = this.isApiUrl(request.url(), getAppUrl());
+      const uri = this.isApiMockUrl(request.url());
       if (uri) {
         const uriUid = `${request.method()}:${uri}`;
         let uid = uriUid;
@@ -383,14 +384,25 @@ export class MockServerHelper {
     });
   }
 
-  private isApiUrl(url: string, host: string): string | undefined {
-    // Проверяем, начинается ли URL с хоста и содержит ли /api/
-    if (url.startsWith(host) && url.includes("/api/")) {
-      // Убираем хост и возвращаем оставшуюся часть URL
-      return url.replace(host, "");
+  private isApiMockUrl(url: string): string | undefined {
+    const host = getAppUrl();
+    const path = url.startsWith(host) ? url.replace(host, "") : url;
+
+    const pattern = this.opts?.mockUrl ?? defaulMockUrl;
+
+    if (pattern instanceof RegExp) {
+      if (pattern.test(url) || pattern.test(path)) {
+        return path.startsWith("http") ? path.replace(host, "") : path;
+      }
+      return undefined;
     }
 
-    // Возвращаем undefined, если условия не выполнены
+    if (
+      minimatch(path, pattern, { dot: true }) ||
+      minimatch(url, pattern, { dot: true })
+    ) {
+      return path;
+    }
     return undefined;
   }
 
@@ -585,7 +597,10 @@ export class MockServerHelper {
   }
 
   /** Сверяет список выполненных запросов с ожидаемым и очищает кэш */
-  public async expectApiCalls(expected?: Record<string, string>) {
+  public async expectApiCalls(
+    expected?: Record<string, string>,
+    auxExpected?: Record<string, string>
+  ) {
     const harEntries = (((await this.getHarContent()) ?? {})?.log?.entries ??
       []) as {
       request: { url: string; method: string };
@@ -604,7 +619,9 @@ export class MockServerHelper {
       return pre;
     }, {} as Record<string, string>);
 
-    expect.soft(this._apiCalls).toEqual(expected ?? harCalls);
+    expect
+      .soft(this._apiCalls)
+      .toEqual(expected ?? { ...harCalls, ...auxExpected });
   }
 
   /** Очистка списка выполненных запросов */

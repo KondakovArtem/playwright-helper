@@ -19,7 +19,7 @@ import { DEMO_HOST, DEMO_PORT, mouseClick, wait } from "./playwright.utils";
  */
 export function addTestAnnotation(
   testInfo: TestInfo,
-  data: { type?: string; description?: string } | string
+  data: { type?: string; description?: string } | string,
 ) {
   if (typeof data === "string") {
     // Если data - строка, добавляем аннотацию с пустым типом.
@@ -73,7 +73,7 @@ export async function scrollBodyTop(page: Page, diff = -1000) {
  */
 export async function scrollElement(
   locator: Locator,
-  scroll: { top?: number; left?: number }
+  scroll: { top?: number; left?: number },
 ) {
   const page = locator.page();
   const el = await locator.elementHandle();
@@ -87,7 +87,7 @@ export async function scrollElement(
           el.scrollLeft = scroll.left;
         }
       },
-      { el, scroll }
+      { el, scroll },
     );
   }
 
@@ -101,7 +101,7 @@ export async function scrollElement(
  */
 export async function scrollElementByLocator(
   locator: Locator,
-  scroll: { scrollTop?: number; scrollLeft?: number } = {}
+  scroll: { scrollTop?: number; scrollLeft?: number } = {},
 ) {
   await locator; // Ожидаем локатор.
 
@@ -110,7 +110,7 @@ export async function scrollElementByLocator(
       if (scroll.scrollTop !== undefined) node.scrollTop = scroll.scrollTop; // Устанавливаем scrollTop.
       if (scroll.scrollLeft !== undefined) node.scrollLeft = scroll.scrollLeft; // Устанавливаем scrollLeft.
     },
-    { scroll }
+    { scroll },
   );
 }
 
@@ -154,7 +154,7 @@ export async function makeScreenshotResolutions(
     useTitle?: boolean;
     /** задержка между формирование скриншотов */
     delay?: number;
-  }
+  },
 ) {
   const page = (locator as Locator).page?.() ?? (locator as Page);
   const { delay = 500 } = opts ?? {};
@@ -167,19 +167,19 @@ export async function makeScreenshotResolutions(
   await page.setViewportSize({ width: 1024, height: 768 });
 
   await wait(page, delay, waitLoadState);
-  await expect.soft(locator).toHaveScreenshot(`${pfx}1024х768.png`);
+  await expect.soft(locator).toHaveScreenshot(`${pfx}1024x768.png`, opts);
 
   await page.setViewportSize({ width: 1920, height: 1080 });
   await wait(page, delay, waitLoadState);
-  await expect.soft(locator).toHaveScreenshot(`${pfx}1920х1080.png`);
+  await expect.soft(locator).toHaveScreenshot(`${pfx}1920x1080.png`, opts);
 
   await page.setViewportSize({ width: 2048, height: 1080 });
   await wait(page, delay, waitLoadState);
-  await expect.soft(locator).toHaveScreenshot(`${pfx}2048х1080.png`);
+  await expect.soft(locator).toHaveScreenshot(`${pfx}2048x1080.png`, opts);
 
   await page.setViewportSize({ width: 3840, height: 2160 });
   await wait(page, delay, waitLoadState);
-  await expect.soft(locator).toHaveScreenshot(`${pfx}3840х2016.png`);
+  await expect.soft(locator).toHaveScreenshot(`${pfx}3840x2016.png`, opts);
 
   if (defSize) await page.setViewportSize(defSize);
 }
@@ -212,7 +212,7 @@ export function themeSwitcher({
       await setInitTheme(
         page,
         themeKey ?? "app_theme",
-        darkValue ?? "app_dark_theme"
+        darkValue ?? "app_dark_theme",
       );
     }
   };
@@ -246,7 +246,7 @@ function setAppHost(host: string) {
  */
 export async function networkRecorder(
   { page, request }: { page: Page; request: APIRequestContext },
-  testInfo: TestInfo
+  testInfo: TestInfo,
 ) {
   await networkRecorderAuthHook({})({ page, request }, testInfo);
 }
@@ -262,8 +262,8 @@ export async function networkRecorder(
  * 4. Добавляет полученные cookies в контекст страницы для эмуляции авторизованного пользователя.
  *
  * @param {Object} params - Параметры хука
- * @param {string} [params.login="adm"] - Логин пользователя
- * @param {string} [params.password="luxmsbi"] - Пароль пользователя
+ * @param {string} [params.login] - Логин пользователя (по умолчанию process.env.PW_LOGIN)
+ * @param {string} [params.password] - Пароль пользователя (по умолчанию process.env.PW_PASSWORD)
  * @param {string} [params.host="/ekp-user-service/api/Auth/login"] - Путь до эндпоинта авторизации
  * @returns {Function} Асинхронная функция-хук для использования в beforeEach
  */
@@ -283,9 +283,18 @@ export function networkRecorderAuthHook({
   authUri = authUri ?? "/ekp-user-service/api/Auth/login";
   return async (
     { page, request }: { page: Page; request: APIRequestContext },
-    testInfo: TestInfo
+    testInfo: TestInfo,
   ) => {
     if (testInfo.project.name.includes("network-recorder")) {
+      login = login ?? process.env.PW_LOGIN;
+      password = password ?? process.env.PW_PASSWORD;
+
+      if (!login || !password) {
+        throw new Error(
+          "Missing PW_LOGIN, PW_PASSWORD you need add login password credentials for recording mocks",
+        );
+      }
+
       networkRecorderFlag = true;
       if (host) {
         setAppHost(host);
@@ -324,8 +333,8 @@ export function isNetworkRecorder() {
  */
 export async function networkRecorderWait(
   page: Page,
-  count = 500,
-  waitLoadState: boolean
+  count: number = 500,
+  waitLoadState: boolean = false,
 ) {
   await wait(page, isNetworkRecorder() ? count : 500, waitLoadState);
 }

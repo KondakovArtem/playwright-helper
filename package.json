@@ -1,6 +1,6 @@
 {
   "name": "@kavoxx/playwright-helper",
-  "version": "1.54.2-alpha.39",
+  "version": "1.54.2-alpha.52",
   "main": "dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -24,8 +24,9 @@
   "description": "",
   "dependencies": {
     "@playwright/test": "1.54.2",
-    "yauzl": "3.2.0",
-    "exceljs": "4.4.0"
+    "minimatch": "10.0.3",
+    "xlsx-js-style": "1.2.0",
+    "yauzl": "3.2.0"
   },
   "devDependencies": {
     "@types/yauzl": "2.10.3",
