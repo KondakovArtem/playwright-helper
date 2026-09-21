@@ -15,6 +15,30 @@ import { Variables, replaceVariablesInJson } from "./util";
 
 const defaulMockUrl = "/**/api/**";
 
+/**
+ * Сегменты путей ресурсов dev-сервера (Vite/webpack), которые не являются API,
+ * но могут попадать под маску /**\/api/** (например, /src/services/api/...).
+ */
+const frontendResourcePathParts = [
+  "/src/",
+  "/@vite/",
+  "/@fs/",
+  "/node_modules/",
+  "/@react-refresh",
+];
+
+function isFrontendResource(url: URL): boolean {
+  return frontendResourcePathParts.some((part) => url.pathname.includes(part));
+}
+
+function isFrontendResourceUrl(url: string): boolean {
+  try {
+    return isFrontendResource(new URL(url));
+  } catch {
+    return false;
+  }
+}
+
 type RouteHarOptions = NonNullable<Parameters<Page["routeFromHAR"]>[1]>;
 
 function getFileFromZip(
@@ -289,6 +313,13 @@ export class MockServerHelper {
         update: isNetworkRecorder(),
       }
     );
+
+    // Ресурсы dev-сервера (например, /src/services/api/...) не должны
+    // перехватываться HAR и моками: пропускаем их напрямую в сеть.
+    await this.page.route(
+      (url) => isFrontendResource(url),
+      (route) => route.continue()
+    );
   }
 
   // Путь к директории теста
@@ -361,6 +392,10 @@ export class MockServerHelper {
       (typeof this.opts === "object" ? this.opts.mockUrl : mockUrl) ?? mockUrl;
 
     await this.page.route(mockUrl, async (route) => {
+      if (isFrontendResourceUrl(route.request().url())) {
+        return route.fallback();
+      }
+
       return route.abort("accessdenied"); // Блокировка запроса с сообщением об ошибке доступа
     });
   }
@@ -385,6 +420,10 @@ export class MockServerHelper {
   }
 
   private isApiMockUrl(url: string): string | undefined {
+    if (isFrontendResourceUrl(url)) {
+      return undefined;
+    }
+
     const host = getAppUrl();
     const path = url.startsWith(host) ? url.replace(host, "") : url;
 
