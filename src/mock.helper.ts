@@ -246,7 +246,11 @@ export class MockServerHelper {
           _file?: string;
         };
       };
-    }> = har?.log?.entries ?? [];
+    }> = (har?.log?.entries ?? []).filter(
+      // Ресурсы dev-сервера не являются API и не участвуют в сверке вызовов
+      (entry: { request: { url: string } }) =>
+        !isFrontendResourceUrl(entry.request.url)
+    );
 
     // Генерируем ключи по той же логике, что и в expectApiCalls
     let found: (typeof entries)[number] | undefined;
@@ -646,7 +650,15 @@ export class MockServerHelper {
       response: { status: number };
     }[];
 
-    const harCalls = harEntries.reduce((pre, { request, response }) => {
+    // Ресурсы dev-сервера (/src/, /@vite/, /node_modules/ и т.п.) могут попадать
+    // в HAR, так как маска /**/api/** совпадает с путями вида
+    // /src/services/api/..., но они не являются API-вызовами. spyApiCall такие
+    // запросы не учитывает, поэтому исключаем их и из ожидания.
+    const apiHarEntries = harEntries.filter(
+      (entry) => !isFrontendResourceUrl(entry.request.url)
+    );
+
+    const harCalls = apiHarEntries.reduce((pre, { request, response }) => {
       const key = `${request.method}:${request.url}`.replace(getAppUrl(), "");
       let iterKey = key;
       let idx = 1;
