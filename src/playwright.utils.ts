@@ -12,15 +12,16 @@ export interface Coord {
  *
  * @param {Locator} locator - Локатор Playwright, на который нужно навести мышь
  * @param {Coord} [shift] - Необязательный сдвиг курсора относительно центра локатора
+ * @param {number} [steps=5] - Количество промежуточных шагов перемещения курсора
  */
-export async function mouseOver(locator: Locator, shift?: Coord) {
+export async function mouseOver(locator: Locator, shift?: Coord, steps = 5) {
   const page = locator.page();
   const targetBox = await locator.boundingBox();
   if (targetBox) {
     await page.mouse.move(
       targetBox.x + targetBox.width / 2 + (shift?.x ?? 0),
       targetBox.y + targetBox.height / 2 + (shift?.y ?? 0),
-      { steps: 5 }
+      { steps },
     );
   }
 }
@@ -32,7 +33,7 @@ export async function changeTheme(page: Page, theme: string) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).setTheme(theme);
     },
-    { theme }
+    { theme },
   );
 }
 export function delay(count = 200) {
@@ -82,7 +83,7 @@ export async function getScreenClip(
     right,
     top,
     bottom,
-  }: { top?: number; left?: number; right?: number; bottom?: number } = {}
+  }: { top?: number; left?: number; right?: number; bottom?: number } = {},
 ) {
   const box = { ...(await locator.boundingBox()) } as {
     x: number;
